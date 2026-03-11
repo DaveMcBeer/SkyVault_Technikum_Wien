@@ -4,9 +4,12 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from cryptography.fernet import Fernet
 import bcrypt  # Import bcrypt for password hashing
 import os
+import sqlite3
 
 app = Flask(__name__)
-app.secret_key = '51855d52e41656e7b6af1d1056cbe967ae63a26358f47af0'  # Change this to a stronger secret key in production
+# Change this to a stronger secret key in production
+app.secret_key = '51855d52e41656e7b6af1d1056cbe967ae63a26358f47af0'
+DATABASE_PATH = 'users.db'
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -14,9 +17,11 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 # Pre-created hashed password for admin user
-PRE_CREATED_HASH = "$2b$12$C0do3nPggj0GhzstDP1fgOf3U7nU/5X3T5NXPpG6JXTiUfieKkfQO"  # Update this with your generated hash
+# Update this with your generated hash
+PRE_CREATED_HASH = "$2b$12$C0do3nPggj0GhzstDP1fgOf3U7nU/5X3T5NXPpG6JXTiUfieKkfQO"
 
-KEY = Fernet.generate_key()  # Generate encryption key, in production, keep this in a secure place.
+# Generate encryption key, in production, keep this in a secure place.
+KEY = Fernet.generate_key()
 cipher_suite = Fernet(KEY)
 
 # App configuration
@@ -26,6 +31,123 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # Max file size of 16MB
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+
+def get_db_connection():
+    """Create a SQLite connection with row access by column name."""
+    conn = sqlite3.connect(DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    """Initialize the users table for authentication."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP,
+            is_active BOOLEAN DEFAULT 1
+        )
+        '''
+    )
+    conn.commit()
+    conn.close()
+
+
+def migrate_users_from_txt():
+    """Import legacy users from users.txt into SQLite once."""
+    legacy_file = 'users.txt'
+    if not os.path.exists(legacy_file):
+        return
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    imported = 0
+
+    with open(legacy_file, 'r') as file:
+        for line in file:
+            raw = line.strip()
+            if not raw or ',' not in raw:
+                continue
+
+            username, password_hash = raw.split(',', 1)
+            username = username.strip()
+            password_hash = password_hash.strip()
+
+            if not username or not password_hash:
+                continue
+
+            cursor.execute(
+                'INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)',
+                (username, password_hash),
+            )
+            if cursor.rowcount == 1:
+                imported += 1
+
+    conn.commit()
+    conn.close()
+    print(f"User migration complete: imported {imported} users from users.txt")
+
+
+def get_user_by_id(user_id):
+    """Fetch an active user by database id."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, username, password_hash, is_active FROM users WHERE id = ? AND is_active = 1',
+        (user_id,),
+    )
+    user = cursor.fetchone()
+    conn.close()
+    return user
+
+
+def get_user_by_username(username):
+    """Fetch an active user by username."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT id, username, password_hash, is_active FROM users WHERE username = ? AND is_active = 1',
+        (username,),
+    )
+    user = cursor.fetchone()
+    conn.close()
+    return user
+
+
+def create_user(username, password_hash):
+    """Create a new active user account."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+            (username, password_hash),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def update_last_login(user_id):
+    """Store the timestamp of the user's most recent successful login."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?',
+        (user_id,),
+    )
+    conn.commit()
+    conn.close()
 
 
 def allowed_file(filename):
@@ -49,14 +171,18 @@ def get_icon(filename):
 
 # Simple user class for Flask-Login
 class User(UserMixin):
-    def __init__(self, id):
-        self.id = id
+    def __init__(self, id, username=None):
+        self.id = str(id)
+        self.username = username
 
 
 # User loader
 @login_manager.user_loader
 def load_user(user_id):
-    return User(user_id)
+    user = get_user_by_id(user_id)
+    if not user:
+        return None
+    return User(user['id'], user['username'])
 
 
 # Routes
@@ -71,29 +197,18 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password'].encode()
+        username = request.form['username'].strip()
+        password = request.form['password']
 
-        # Read the users from the file
-        try:
-            with open('users.txt', 'r') as file:
-                users = file.readlines()
+        user = get_user_by_username(username)
+        if user and bcrypt.checkpw(password.encode(), user['password_hash'].encode()):
+            login_user(User(user['id'], user['username']))
+            update_last_login(user['id'])
+            return redirect(url_for('index'))
 
-            for user in users:
-                stored_username, stored_password = user.strip().split(',')
-                if username == stored_username and bcrypt.checkpw(password, stored_password.encode()):
-                    # If credentials are correct, log the user in
-                    user = User(username)
-                    login_user(user)
-                    return redirect(url_for('index'))
-
-            # If no matching user is found
-            flash("Invalid credentials", "danger")
-        except FileNotFoundError:
-            flash("No users found. Please sign up first.", "warning")
+        flash("Invalid credentials", "danger")
 
     return render_template('login.html')
-
 
 
 @app.route('/logout')
@@ -126,7 +241,8 @@ def upload_file():
         with open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'wb') as f:
             f.write(encrypted_file)
 
-        flash(f"File '{filename}' uploaded and encrypted successfully!", "success")
+        flash(
+            f"File '{filename}' uploaded and encrypted successfully!", "success")
         return redirect(url_for('files'))
     else:
         flash("Invalid file type! Only txt, pdf, png, jpg, jpeg, and gif are allowed.", "danger")
@@ -157,7 +273,8 @@ def download(filename):
             decrypted_data = cipher_suite.decrypt(encrypted_data)
 
         # Send the decrypted file to the user
-        response = send_from_directory(app.config['UPLOAD_FOLDER'], safe_filename, as_attachment=True)
+        response = send_from_directory(
+            app.config['UPLOAD_FOLDER'], safe_filename, as_attachment=True)
         response.data = decrypted_data
         return response
     except FileNotFoundError:
@@ -197,11 +314,10 @@ def internal_error(e):
     return render_template('500.html', title="Internal Server Error"), 500
 
 
-
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
-        username = request.form['username']
+        username = request.form['username'].strip()
         password = request.form['password']
         confirm_password = request.form['confirm_password']
 
@@ -209,16 +325,25 @@ def signup():
             flash("Passwords do not match!", "danger")
             return redirect(url_for('signup'))
 
-        hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+        if not username or not password:
+            flash("Username and password are required!", "danger")
+            return redirect(url_for('signup'))
 
-        # Save the new user's credentials in a file
-        with open('users.txt', 'a') as file:
-            file.write(f"{username},{hashed_password.decode()}\n")
+        hashed_password = bcrypt.hashpw(
+            password.encode(), bcrypt.gensalt()).decode()
+
+        if not create_user(username, hashed_password):
+            flash("Username already exists!", "danger")
+            return redirect(url_for('signup'))
 
         flash("Account created successfully! Please log in.", "success")
         return redirect(url_for('login'))
 
     return render_template('signup.html', title="Sign Up")
+
+
+init_db()
+migrate_users_from_txt()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

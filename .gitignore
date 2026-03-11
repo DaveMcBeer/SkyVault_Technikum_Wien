@@ -39,6 +39,7 @@ Thumbs.db
 uploads/
 encrypted_files/
 *.db
+users.db
 *.sqlite3
 instance/
 
