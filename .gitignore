@@ -42,7 +42,7 @@ encrypted_files/
 *.sqlite3
 instance/
 
-# Environment variables
+# Environment variables — NEVER commit these!
 .env
 .flaskenv
 

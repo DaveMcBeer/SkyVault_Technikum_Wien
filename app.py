@@ -2,30 +2,41 @@ from flask import Flask, render_template, request, redirect, url_for, send_from_
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from cryptography.fernet import Fernet
-import bcrypt  # Import bcrypt for password hashing
+from dotenv import load_dotenv
+import bcrypt
 import os
 
+# Load environment variables from .env file
+load_dotenv()
+
 app = Flask(__name__)
-app.secret_key = '51855d52e41656e7b6af1d1056cbe967ae63a26358f47af0'  # Change this to a stronger secret key in production
+app.secret_key = os.environ.get('SECRET_KEY')
+if not app.secret_key:
+    raise RuntimeError("SECRET_KEY is not set! Please configure it in your .env file.")
 
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# Pre-created hashed password for admin user
-PRE_CREATED_HASH = "$2b$12$C0do3nPggj0GhzstDP1fgOf3U7nU/5X3T5NXPpG6JXTiUfieKkfQO"  # Update this with your generated hash
+# Encryption key from environment variable
+_encryption_key = os.environ.get('ENCRYPTION_KEY')
+if not _encryption_key:
+    raise RuntimeError("ENCRYPTION_KEY is not set! Please configure it in your .env file.")
+cipher_suite = Fernet(_encryption_key.encode())
 
-KEY = Fernet.generate_key()  # Generate encryption key, in production, keep this in a secure place.
-cipher_suite = Fernet(KEY)
+# App configuration from environment variables
+UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
+ENCRYPTED_FOLDER = os.environ.get('ENCRYPTED_FOLDER', 'encrypted_files')
+MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))
 
-# App configuration
-UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(ENCRYPTED_FOLDER, exist_ok=True)
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
-MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # Max file size of 16MB
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 
 
 def allowed_file(filename):
@@ -47,19 +58,16 @@ def get_icon(filename):
     return icon_map.get(file_ext, 'default-icon.png')
 
 
-# Simple user class for Flask-Login
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
 
 
-# User loader
 @login_manager.user_loader
 def load_user(user_id):
     return User(user_id)
 
 
-# Routes
 @app.route('/')
 def index():
     if current_user.is_authenticated:
@@ -74,7 +82,6 @@ def login():
         username = request.form['username']
         password = request.form['password'].encode()
 
-        # Read the users from the file
         try:
             with open('users.txt', 'r') as file:
                 users = file.readlines()
@@ -82,18 +89,15 @@ def login():
             for user in users:
                 stored_username, stored_password = user.strip().split(',')
                 if username == stored_username and bcrypt.checkpw(password, stored_password.encode()):
-                    # If credentials are correct, log the user in
                     user = User(username)
                     login_user(user)
                     return redirect(url_for('index'))
 
-            # If no matching user is found
             flash("Invalid credentials", "danger")
         except FileNotFoundError:
             flash("No users found. Please sign up first.", "warning")
 
     return render_template('login.html')
-
 
 
 @app.route('/logout')
@@ -120,8 +124,6 @@ def upload_file():
 
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
-
-        # Encrypt the file before saving it
         encrypted_file = cipher_suite.encrypt(file.read())
         with open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'wb') as f:
             f.write(encrypted_file)
@@ -151,12 +153,10 @@ def download(filename):
         safe_filename = secure_filename(filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
 
-        # Decrypt the file before sending
         with open(file_path, 'rb') as f:
             encrypted_data = f.read()
             decrypted_data = cipher_suite.decrypt(encrypted_data)
 
-        # Send the decrypted file to the user
         response = send_from_directory(app.config['UPLOAD_FOLDER'], safe_filename, as_attachment=True)
         response.data = decrypted_data
         return response
@@ -197,7 +197,6 @@ def internal_error(e):
     return render_template('500.html', title="Internal Server Error"), 500
 
 
-
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
@@ -211,7 +210,6 @@ def signup():
 
         hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
 
-        # Save the new user's credentials in a file
         with open('users.txt', 'a') as file:
             file.write(f"{username},{hashed_password.decode()}\n")
 
@@ -220,5 +218,7 @@ def signup():
 
     return render_template('signup.html', title="Sign Up")
 
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    debug_mode = os.environ.get('FLASK_ENV', 'production') == 'development'
+    app.run(debug=debug_mode, host='0.0.0.0', port=5000)

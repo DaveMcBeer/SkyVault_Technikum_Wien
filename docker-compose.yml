@@ -5,9 +5,8 @@ services:
     build: .
     ports:
       - "5000:5000"
-    environment:
-      - FLASK_ENV=production
-      - SECRET_KEY=your-secret-key-change-this
+    env_file:
+      - .env
     volumes:
       - ./uploads:/app/uploads
       - ./encrypted_files:/app/encrypted_files
