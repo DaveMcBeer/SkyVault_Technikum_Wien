@@ -8,6 +8,9 @@ import sqlite3
 import base64
 import json
 import webauthn
+import sys
+from dotenv import load_dotenv
+
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     ResidentKeyRequirement,
@@ -18,9 +21,29 @@ from webauthn.helpers.structs import (
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.exceptions import WebAuthnException
 
+load_dotenv()  # liest die .env Datei ein
+
 app = Flask(__name__)
-# Change this to a stronger secret key in production
-app.secret_key = '51855d52e41656e7b6af1d1056cbe967ae63a26358f47af0'
+
+_SECRET_KEY = os.environ.get('SECRET_KEY')
+_ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY')
+
+if not _SECRET_KEY:
+    print("ERROR: SECRET_KEY is not set. Aborting.", file=sys.stderr)
+    sys.exit(1)
+
+if not _ENCRYPTION_KEY:
+    print("ERROR: ENCRYPTION_KEY is not set. Aborting.", file=sys.stderr)
+    sys.exit(1)
+
+try:
+    cipher_suite = Fernet(_ENCRYPTION_KEY.encode())
+except Exception as e:
+    print(f"ERROR: ENCRYPTION_KEY is invalid: {e}", file=sys.stderr)
+    sys.exit(1)
+
+app.secret_key = _SECRET_KEY
+
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
@@ -37,10 +60,6 @@ login_manager.login_view = 'login'
 # Pre-created hashed password for admin user
 # Update this with your generated hash
 PRE_CREATED_HASH = "$2b$12$C0do3nPggj0GhzstDP1fgOf3U7nU/5X3T5NXPpG6JXTiUfieKkfQO"
-
-# Generate encryption key, in production, keep this in a secure place.
-KEY = Fernet.generate_key()
-cipher_suite = Fernet(KEY)
 
 # App configuration
 UPLOAD_FOLDER = 'uploads'
