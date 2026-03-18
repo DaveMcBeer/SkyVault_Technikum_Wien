@@ -53,3 +53,8 @@ logs/
 
 # Docker
 .dockerignore
+
+# Environment & Secrets
+.env
+*.env
+!.env.example
