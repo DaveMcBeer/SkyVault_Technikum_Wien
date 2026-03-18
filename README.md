@@ -45,8 +45,8 @@ SkyVault is a modern, secure personal cloud storage system built with Flask. It 
    ```
 
 3. **Generate secure Keys**
+create .env file with the following content and generate the SECRET_KEY and ENCRYPTION_KEY:
    ```bash
-   # create .env file with the following content and generate the SECRET_KEY and ENCRYPTION_KEY:
     FLASK_ENV=development
     SECRET_KEY=<selbst generieren mit python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
     ENCRYPTION_KEY=<selbst generieren mit python -c "import secrets; print(secrets.token_hex(32))">
