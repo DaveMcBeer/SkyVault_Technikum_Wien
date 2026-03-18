@@ -44,17 +44,34 @@ SkyVault is a modern, secure personal cloud storage system built with Flask. It 
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Install dependencies**
+3. **Generate secure Keys**
+   ```bash
+   # create .env file with the following content and generate the SECRET_KEY and ENCRYPTION_KEY:
+    FLASK_ENV=development
+    SECRET_KEY=<selbst generieren mit python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+    ENCRYPTION_KEY=<selbst generieren mit python -c "import secrets; print(secrets.token_hex(32))">
+    
+    # File Storage
+    UPLOAD_FOLDER=uploads
+    ENCRYPTED_FOLDER=encrypted_files
+    
+    # Security
+    BCRYPT_LOG_ROUNDS=12
+    
+    # Database (if using)
+    DATABASE_URL=sqlite:///skyvault.db```
+   ```
+4. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
-
-4. **Run the application**
+   
+5. **Run the application**
    ```bash
    python app.py
    ```
 
-5. **Access the application**
+6. **Access the application**
    Open your browser and navigate to `http://127.0.0.1:5000`
 
 ## 🐳 Docker Deployment
