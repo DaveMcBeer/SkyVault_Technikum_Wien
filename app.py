@@ -27,8 +27,8 @@ load_dotenv()  # liest die .env Datei ein
 
 app = Flask(__name__)
 
-#Added as Protection against CRSF (deactivated for now for testing)
-#csrf = CSRFProtect(app)
+# Added as Protection against CRSF (deactivated for now for testing)
+# csrf = CSRFProtect(app)
 
 
 _SECRET_KEY = os.environ.get('SECRET_KEY')
@@ -584,6 +584,23 @@ def webauthn_login_complete():
     update_last_login(user_id)
 
     return jsonify({'status': 'ok', 'redirect': url_for('files')})
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "font-src 'self' https://cdn.jsdelivr.net; "
+        "img-src 'self' data:"
+    )
+    if os.getenv('ENABLE_HTTPS') == 'True':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
 
 
 @app.errorhandler(404)
