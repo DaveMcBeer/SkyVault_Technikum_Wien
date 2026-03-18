@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, redirect, url_for, send_from_
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from cryptography.fernet import Fernet
+from flask_wtf.csrf import CSRFProtect
+
 import bcrypt  # Import bcrypt for password hashing
 import os
 import sqlite3
@@ -24,6 +26,10 @@ from webauthn.helpers.exceptions import WebAuthnException
 load_dotenv()  # liest die .env Datei ein
 
 app = Flask(__name__)
+
+#Temporarily deactivated for testinf
+csrf = CSRFProtect(app)
+
 
 _SECRET_KEY = os.environ.get('SECRET_KEY')
 _ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY')

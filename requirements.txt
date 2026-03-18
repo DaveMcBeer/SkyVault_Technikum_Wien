@@ -5,4 +5,5 @@ cryptography>=43.0.0
 bcrypt>=5.0.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
+Flask-WTF==Flask-WTF
 webauthn==2.7.1
