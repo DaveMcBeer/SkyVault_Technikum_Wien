@@ -115,6 +115,51 @@
     </div>
 </div>
 
+<!-- ── Passkey management ── -->
+<div class="card glass-card mt-4">
+  <div class="card-body">
+    <h5 class="card-title">🔑 Passkeys</h5>
+    <p class="card-text text-muted small">
+      Sign in without a password using Touch ID, Face ID, Windows Hello, or a hardware key.
+    </p>
+
+    <ul id="passkey-list" class="list-group list-group-flush mb-3"></ul>
+
+    <button type="button" id="add-passkey-btn" class="btn btn-primary btn-sm">
+      + Add a passkey
+    </button>
+    <div id="passkey-status" class="mt-2"></div>
+  </div>
+</div>
+
+<script>
+(async () => {
+  const listEl   = document.getElementById('passkey-list');
+  const statusEl = document.getElementById('passkey-status');
+
+  if (!passkeySupported()) {
+    document.getElementById('add-passkey-btn').disabled = true;
+    document.getElementById('add-passkey-btn').title    = 'Your browser does not support passkeys';
+    return;
+  }
+
+  document.getElementById('add-passkey-btn').addEventListener('click', async () => {
+    const name = prompt('Name this passkey (e.g. "MacBook Touch ID"):', 'My passkey');
+    if (!name) return;
+
+    statusEl.innerHTML = '<span class="text-muted small">Creating passkey…</span>';
+    try {
+      const result = await registerPasskey(name.trim() || 'My passkey');
+      statusEl.innerHTML =
+        `<span class="text-success small">✓ Passkey "<strong>${result.name}</strong>" registered. Refresh to see it in the list.</span>`;
+    } catch (err) {
+      statusEl.innerHTML =
+        `<span class="text-danger small">✗ ${err.message}</span>`;
+    }
+  });
+})();
+</script>
+
 <script>
 let deleteFormId = null;
 

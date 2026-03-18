@@ -49,6 +49,49 @@
             </button>
         </form>
 
+        <!-- ── Passkey login ── -->
+        <div class="text-center my-3">
+          <span class="text-muted small">— or —</span>
+        </div>
+
+        <div id="webauthn-login-section">
+          <button type="button"
+                  id="passkey-login-btn"
+                  class="btn btn-outline-light w-100"
+                  style="display:none">
+            🔑 Sign in with a passkey
+          </button>
+          <p id="passkey-unavailable" class="text-muted small text-center" style="display:none">
+            This browser does not support passkeys.
+          </p>
+          <div id="passkey-login-error" class="alert alert-danger mt-2" style="display:none"></div>
+        </div>
+
+        <script>
+        (async () => {
+          if (!passkeySupported()) {
+            document.getElementById('passkey-unavailable').style.display = 'block';
+            return;
+          }
+          document.getElementById('passkey-login-btn').style.display = 'block';
+
+          document.getElementById('passkey-login-btn').addEventListener('click', async () => {
+            const usernameInput = document.getElementById('username') ||
+                                  document.querySelector('input[name="username"]');
+            const username = usernameInput ? usernameInput.value.trim() : '';
+            const errorEl  = document.getElementById('passkey-login-error');
+            errorEl.style.display = 'none';
+
+            try {
+              await loginWithPasskey(username);
+            } catch (err) {
+              errorEl.textContent   = err.message;
+              errorEl.style.display = 'block';
+            }
+          });
+        })();
+        </script>
+
         <div class="auth-footer text-center">
             <p class="mb-0">
                 Don't have an account? 
