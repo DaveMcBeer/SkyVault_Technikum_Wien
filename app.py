@@ -1,12 +1,25 @@
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash, jsonify, session
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from cryptography.fernet import Fernet
 import bcrypt  # Import bcrypt for password hashing
 import os
 import sqlite3
+import base64
+import json
+import webauthn
 import sys
 from dotenv import load_dotenv
+
+from webauthn.helpers.structs import (
+    AuthenticatorSelectionCriteria,
+    ResidentKeyRequirement,
+    UserVerificationRequirement,
+    PublicKeyCredentialDescriptor,
+    AuthenticatorTransport,
+)
+from webauthn.helpers.cose import COSEAlgorithmIdentifier
+from webauthn.helpers.exceptions import WebAuthnException
 
 load_dotenv()  # liest die .env Datei ein
 
@@ -31,6 +44,12 @@ except Exception as e:
 
 app.secret_key = _SECRET_KEY
 
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('FLASK_ENV') == 'production',
+    PERMANENT_SESSION_LIFETIME=3600,
+)
 DATABASE_PATH = 'users.db'
 
 # Initialize Flask-Login
@@ -49,6 +68,13 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # Max file size of 16MB
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+# WebAuthn / FIDO2 configuration
+RP_ID = os.environ.get("WEBAUTHN_RP_ID",   "localhost")
+RP_NAME = os.environ.get("WEBAUTHN_RP_NAME",  "SkyVault")
+WEBAUTHN_ORIGIN = os.environ.get(
+    "WEBAUTHN_ORIGIN", "http://localhost:5000"
+)
 
 
 def get_db_connection():
@@ -71,6 +97,22 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP,
             is_active BOOLEAN DEFAULT 1
+        )
+        '''
+    )
+    cursor.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS webauthn_credentials (
+            id            INTEGER  PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER  NOT NULL,
+            credential_id BLOB     NOT NULL UNIQUE,
+            public_key    BLOB     NOT NULL,
+            sign_count    INTEGER  NOT NULL DEFAULT 0,
+            aaguid        TEXT,
+            transports    TEXT,
+            name          TEXT     NOT NULL DEFAULT 'My passkey',
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
         '''
     )
@@ -203,6 +245,27 @@ def load_user(user_id):
     return User(user['id'], user['username'])
 
 
+def _get_user_credentials(user_id: int) -> list:
+    """Return all stored WebAuthn credentials for a user as a list of dicts."""
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT credential_id, public_key, sign_count, transports, name"
+        " FROM webauthn_credentials WHERE user_id = ?",
+        (user_id,)
+    ).fetchall()
+    conn.close()
+    return [
+        {
+            "credential_id": row["credential_id"],
+            "public_key":    row["public_key"],
+            "sign_count":    row["sign_count"],
+            "transports":    json.loads(row["transports"]) if row["transports"] else [],
+            "name":          row["name"],
+        }
+        for row in rows
+    ]
+
+
 # Routes
 @app.route('/')
 def index():
@@ -320,6 +383,201 @@ def delete_file(filename):
     except Exception as e:
         flash(f"Error deleting file: {str(e)}", "danger")
         return redirect(url_for('files'))
+
+
+@app.route('/webauthn/register/begin', methods=['POST'])
+@login_required
+def webauthn_register_begin():
+    """Issue a WebAuthn registration challenge for the current logged-in user."""
+    user_id = int(current_user.id)
+    username = current_user.username
+
+    existing = _get_user_credentials(user_id)
+
+    exclude_credentials = [
+        PublicKeyCredentialDescriptor(
+            id=row["credential_id"],
+            transports=[AuthenticatorTransport(t) for t in row["transports"]],
+        )
+        for row in existing
+    ]
+
+    options = webauthn.generate_registration_options(
+        rp_id=RP_ID,
+        rp_name=RP_NAME,
+        user_id=str(user_id).encode('utf-8'),
+        user_name=username,
+        user_display_name=username,
+        exclude_credentials=exclude_credentials,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.PREFERRED,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        ),
+        supported_pub_key_algs=[
+            COSEAlgorithmIdentifier.ECDSA_SHA_256,
+            COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
+        ],
+        hints=["client-device", "security-key"],
+    )
+
+    session['webauthn_reg_challenge'] = base64.b64encode(
+        options.challenge).decode()
+
+    return webauthn.options_to_json(options), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/webauthn/register/complete', methods=['POST'])
+@login_required
+def webauthn_register_complete():
+    """Verify the authenticator's attestation response and persist the credential."""
+    challenge_b64 = session.pop('webauthn_reg_challenge', None)
+    if not challenge_b64:
+        return jsonify({'error': 'No pending registration challenge'}), 400
+
+    user_id = int(current_user.id)
+    body = request.get_json(silent=True) or {}
+    cred_name = body.get('name', 'My passkey')[:64]
+
+    try:
+        verification = webauthn.verify_registration_response(
+            credential=webauthn.parse_registration_credential_json(
+                body.get('credential', {})),
+            expected_challenge=base64.b64decode(challenge_b64),
+            expected_rp_id=RP_ID,
+            expected_origin=WEBAUTHN_ORIGIN,
+        )
+    except WebAuthnException as exc:
+        app.logger.warning("WebAuthn registration failed: %s", exc)
+        return jsonify({'error': str(exc)}), 400
+
+    transports_json = json.dumps(
+        [t.value for t in (verification.credential_transports or [])]
+    )
+
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """INSERT INTO webauthn_credentials
+               (user_id, credential_id, public_key, sign_count, aaguid, transports, name)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                user_id,
+                verification.credential_id,
+                verification.credential_public_key,
+                verification.sign_count,
+                str(verification.aaguid),
+                transports_json,
+                cred_name,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({'status': 'ok', 'name': cred_name})
+
+
+@app.route('/webauthn/login/begin', methods=['POST'])
+def webauthn_login_begin():
+    """Issue a WebAuthn authentication challenge for the named user."""
+    body = request.get_json(silent=True) or {}
+    username = (body.get('username') or '').strip()
+
+    conn = get_db_connection()
+    user = conn.execute(
+        'SELECT id FROM users WHERE username = ? AND is_active = 1', (
+            username,)
+    ).fetchone()
+    conn.close()
+
+    allow_credentials = []
+    if user:
+        existing = _get_user_credentials(user['id'])
+        allow_credentials = [
+            PublicKeyCredentialDescriptor(
+                id=row["credential_id"],
+                transports=[AuthenticatorTransport(
+                    t) for t in row["transports"]],
+            )
+            for row in existing
+        ]
+        session['webauthn_login_user_id'] = user['id']
+
+    options = webauthn.generate_authentication_options(
+        rp_id=RP_ID,
+        allow_credentials=allow_credentials,
+        user_verification=UserVerificationRequirement.PREFERRED,
+    )
+
+    # Always set a fresh challenge — even for unknown users (prevents user enumeration)
+    session['webauthn_login_challenge'] = base64.b64encode(
+        options.challenge).decode()
+
+    return webauthn.options_to_json(options), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/webauthn/login/complete', methods=['POST'])
+def webauthn_login_complete():
+    """Verify the signed assertion and establish a Flask session."""
+    challenge_b64 = session.pop('webauthn_login_challenge', None)
+    user_id = session.pop('webauthn_login_user_id', None)
+
+    if not challenge_b64 or not user_id:
+        return jsonify({'error': 'No pending login challenge'}), 400
+
+    body = request.get_json(silent=True) or {}
+
+    conn = get_db_connection()
+    username_row = conn.execute(
+        'SELECT username FROM users WHERE id = ? AND is_active = 1', (user_id,)
+    ).fetchone()
+
+    raw_id_b64 = body.get('credential', {}).get('rawId', '')
+    try:
+        raw_id_bytes = base64.urlsafe_b64decode(raw_id_b64 + '==')
+    except Exception:
+        conn.close()
+        return jsonify({'error': 'Invalid credential ID encoding'}), 400
+
+    cred_row = conn.execute(
+        """SELECT credential_id, public_key, sign_count
+           FROM webauthn_credentials
+           WHERE user_id = ? AND credential_id = ?""",
+        (user_id, raw_id_bytes),
+    ).fetchone()
+    conn.close()
+
+    if not cred_row or not username_row:
+        return jsonify({'error': 'Credential not found'}), 400
+
+    try:
+        verification = webauthn.verify_authentication_response(
+            credential=webauthn.parse_authentication_credential_json(
+                body.get('credential', {})
+            ),
+            expected_challenge=base64.b64decode(challenge_b64),
+            expected_rp_id=RP_ID,
+            expected_origin=WEBAUTHN_ORIGIN,
+            credential_public_key=cred_row['public_key'],
+            credential_current_sign_count=cred_row['sign_count'],
+            require_user_verification=False,
+        )
+    except WebAuthnException as exc:
+        app.logger.warning("WebAuthn authentication failed: %s", exc)
+        return jsonify({'error': str(exc)}), 400
+
+    conn = get_db_connection()
+    conn.execute(
+        'UPDATE webauthn_credentials SET sign_count = ? WHERE credential_id = ?',
+        (verification.new_sign_count, cred_row['credential_id']),
+    )
+    conn.commit()
+    conn.close()
+
+    login_user(User(user_id, username_row['username']))
+    update_last_login(user_id)
+
+    return jsonify({'status': 'ok', 'redirect': url_for('files')})
 
 
 @app.errorhandler(404)
