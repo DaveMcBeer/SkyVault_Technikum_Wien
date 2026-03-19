@@ -11,6 +11,7 @@ import base64
 import json
 import webauthn
 import sys
+import magic  # Import python-magic for MIME type checking
 from dotenv import load_dotenv
 
 from webauthn.helpers.structs import (
@@ -27,8 +28,8 @@ load_dotenv()  # liest die .env Datei ein
 
 app = Flask(__name__)
 
-# Added as Protection against CRSF (deactivated for now for testing)
-# csrf = CSRFProtect(app)
+#Added as Protection against CRSF (deactivated for now for testing)
+#csrf = CSRFProtect(app)
 
 
 _SECRET_KEY = os.environ.get('SECRET_KEY')
@@ -72,6 +73,15 @@ UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
+
+ALLOWED_MIME_TYPES = {
+    'txt':  'text/plain',
+    'pdf':  'application/pdf',
+    'png':  'image/png',
+    'jpg':  'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'gif':  'image/gif',
+}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # Max file size of 16MB
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
@@ -216,10 +226,21 @@ def update_last_login(user_id):
     conn.close()
 
 
-def allowed_file(filename):
-    """Check if the uploaded file is allowed."""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+def allowed_file(filename, file_data):
+    """Check filename extension AND magic-bytes MIME-type."""
+    if '.' not in filename:
+        return False
 
+    ext = filename.rsplit('.', 1)[1].lower()
+
+    if ext not in ALLOWED_EXTENSIONS:
+        return False
+    if len(file_data) == 0:
+        return True  # Allow empty files (MIME type check will be skipped)
+    actual_mime = magic.from_buffer(file_data, mime=True)
+    expected_mime = ALLOWED_MIME_TYPES.get(ext)
+
+    return actual_mime == expected_mime
 
 def get_icon(filename):
     """Return the appropriate icon for a file based on its extension."""
@@ -320,20 +341,21 @@ def upload_file():
         flash("No file selected for uploading!", "warning")
         return redirect(url_for('index'))
 
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
+    file_data = file.read()
 
-        # Encrypt the file before saving it
-        encrypted_file = cipher_suite.encrypt(file.read())
-        with open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'wb') as f:
-            f.write(encrypted_file)
-
-        flash(
-            f"File '{filename}' uploaded and encrypted successfully!", "success")
-        return redirect(url_for('files'))
-    else:
+    if not allowed_file(file.filename, file_data):
         flash("Invalid file type! Only txt, pdf, png, jpg, jpeg, and gif are allowed.", "danger")
         return redirect(url_for('index'))
+
+    filename = secure_filename(file.filename)
+
+    # Encrypt the file before saving it (file_data statt file.read())
+    encrypted_file = cipher_suite.encrypt(file_data)
+    with open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'wb') as f:
+        f.write(encrypted_file)
+
+    flash(f"File '{filename}' uploaded and encrypted successfully!", "success")
+    return redirect(url_for('files'))
 
 
 @app.route('/files')
@@ -584,23 +606,6 @@ def webauthn_login_complete():
     update_last_login(user_id)
 
     return jsonify({'status': 'ok', 'redirect': url_for('files')})
-
-
-@app.after_request
-def set_security_headers(response):
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Content-Security-Policy'] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "font-src 'self' https://cdn.jsdelivr.net; "
-        "img-src 'self' data:"
-    )
-    if os.getenv('ENABLE_HTTPS') == 'True':
-        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    return response
 
 
 @app.errorhandler(404)
