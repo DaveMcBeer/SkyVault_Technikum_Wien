@@ -48,7 +48,7 @@ SkyVault is a modern, secure personal cloud storage system built with Flask. It 
 ```
 
 **Wenn Docker verwendet wird, diesen Schritt überspringen!**
-### (Ohne Docker) **Create virtual environment**
+#### (Ohne Docker) **Create virtual environment**
 Prerequisites
 - Python 3.8+
 - pip
@@ -67,12 +67,12 @@ Prerequisites
    python app.py
    ```
 
-## 🐳 (Mit Docker) Start Docker Container
+#### 🐳 (Mit Docker) Start Docker Container
 ```bash
    docker-compose up
 ```
 
-6. **Access the application**
+## **Access the application**
    Open your browser and navigate to `http://127.0.0.1:5000`
 
 ## 🎨 UI Features
