@@ -25,111 +25,55 @@ SkyVault is a modern, secure personal cloud storage system built with Flask. It 
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-- Python 3.8+
-- pip (Python package installer)
-
 ### Installation
+1. Repository klonen:
+```bash
+   git clone https://github.com/DaveMcBeer/SkyVault_Technikum_Wien
+   cd SkyVault_Technikum_Wien
+```
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/SkyVault.git
-   cd SkyVault
-   ```
+2. Konfiguration anlegen:
+```bash
+   cp .env.example .env
+   # .env öffnen und SECRET_KEY sowie ENCRYPTION_KEY eintragen
+```
 
-2. **Create virtual environment**
+3. Keys generieren:
+```bash
+   # SECRET_KEY
+   python -c "import secrets; print(secrets.token_hex(32))"
+
+   # ENCRYPTION_KEY
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+**Wenn Docker verwendet wird, diesen Schritt überspringen!**
+### (Ohne Docker) **Create virtual environment**
+Prerequisites
+- Python 3.8+
+- pip
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Generate secure Keys**
-create .env file with the following content and generate the SECRET_KEY and ENCRYPTION_KEY:
-   ```bash
-    FLASK_ENV=development
-    SECRET_KEY=<selbst generieren mit python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
-    ENCRYPTION_KEY=<selbst generieren mit python -c "import secrets; print(secrets.token_hex(32))">
-    
-    # File Storage
-    UPLOAD_FOLDER=uploads
-    ENCRYPTED_FOLDER=encrypted_files
-    
-    # Security
-    BCRYPT_LOG_ROUNDS=12
-    
-    # Database (if using)
-    DATABASE_URL=sqlite:///skyvault.db```
-   ```
-4. **Install dependencies**
+ **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
    
-5. **Run the application**
+ **Run the application**
    ```bash
    python app.py
    ```
 
+## 🐳 (Mit Docker) Start Docker Container
+```bash
+   docker-compose up
+```
+
 6. **Access the application**
    Open your browser and navigate to `http://127.0.0.1:5000`
-
-## 🐳 Docker Deployment
-
-### Using Docker
-
-```bash
-# Build the image
-docker build -t skyvault .
-
-# Run the container
-docker run -p 5000:5000 skyvault
-```
-
-### Using Docker Compose
-
-```bash
-docker-compose up
-```
-
-## 📁 Project Structure
-
-```
-SkyVault/
-├── app.py                 # Main Flask application
-├── requirements.txt       # Python dependencies
-├── Dockerfile            # Docker configuration
-├── docker-compose.yml    # Docker Compose setup
-├── .gitignore           # Git ignore rules
-├── templates/           # HTML templates
-│   ├── base.html        # Base template
-│   ├── index.html       # Homepage
-│   ├── files.html       # File management
-│   ├── login.html       # Login page
-│   ├── signup.html      # Registration page
-│   ├── upload.html      # File upload
-│   ├── 404.html         # Error page
-│   └── 500.html         # Error page
-├── static/              # Static assets
-│   ├── css/
-│   │   └── styles.css   # Custom styles
-│   └── icons/           # Application icons
-├── uploads/             # Temporary uploads (gitignored)
-└── encrypted_files/     # Encrypted storage (gitignored)
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-Create a `.env` file in the root directory:
-
-```env
-FLASK_ENV=development
-SECRET_KEY=your-secret-key-here
-UPLOAD_FOLDER=uploads
-ENCRYPTED_FOLDER=encrypted_files
-```
 
 ## 🎨 UI Features
 
