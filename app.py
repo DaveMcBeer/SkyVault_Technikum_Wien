@@ -29,7 +29,7 @@ load_dotenv()  # liest die .env Datei ein
 app = Flask(__name__)
 
 #Added as Protection against CRSF (deactivated for now for testing)
-#csrf = CSRFProtect(app)
+csrf = CSRFProtect(app)
 
 
 _SECRET_KEY = os.environ.get('SECRET_KEY')

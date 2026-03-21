@@ -53,7 +53,9 @@
                 </div>
                 
                 <!-- Hidden delete form -->
-                <form id="delete-{{ loop.index0 }}" action="{{ url_for('delete_file', filename=file) }}" method="POST" class="d-none"></form>
+                <form id="delete-{{ loop.index0 }}" action="{{ url_for('delete_file', filename=file) }}" method="POST" class="d-none">
+                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                </form>
             </div>
             {% endfor %}
         </div>

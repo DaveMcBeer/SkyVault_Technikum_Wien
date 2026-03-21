@@ -45,6 +45,7 @@
                     </div>
                     
                     <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data" class="upload-form">
+                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         <div class="upload-area mb-4" id="uploadArea">
                             <input type="file" class="form-control" id="file" name="file" required hidden>
                             <div class="upload-content text-center py-5">
