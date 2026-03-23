@@ -66,7 +66,7 @@ login_manager.login_view = 'login'
 
 # Pre-created hashed password for admin user
 # Update this with your generated hash
-PRE_CREATED_HASH = "$2b$12$C0do3nPggj0GhzstDP1fgOf3U7nU/5X3T5NXPpG6JXTiUfieKkfQO"
+#PRE_CREATED_HASH = "$2b$12$C0do3nPggj0GhzstDP1fgOf3U7nU/5X3T5NXPpG6JXTiUfieKkfQO"
 
 # App configuration
 UPLOAD_FOLDER = 'uploads'
