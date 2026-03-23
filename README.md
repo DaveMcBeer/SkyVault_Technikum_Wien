@@ -71,6 +71,38 @@ Prerequisites
 ```bash
    docker-compose up
 ```
+### Admin-User erstellen
+
+Nach dem ersten Start muss einmalig ein Admin-User angelegt werden.
+
+#### 🐳 Mit Docker
+```bash
+docker exec -it skyvault_technikum_wien-skyvault-1 python create_admin.py
+```
+
+#### 💻 Ohne Docker
+Stelle sicher dass die virtuelle Umgebung aktiv ist, dann:
+```bash
+# Windows:
+venv\Scripts\activate
+python create_admin.py
+
+# Linux/macOS:
+source venv/bin/activate
+python create_admin.py
+```
+
+Du wirst interaktiv nach Username und Passwort gefragt:
+```
+Admin-Username eingeben: admin
+Admin-Passwort eingeben: ********
+Passwort bestätigen:     ********
+✅ Admin-User 'admin' erfolgreich erstellt.
+```
+
+> 💡 Das Script prüft automatisch ob die Passwörter übereinstimmen und ob das Passwort mindestens 12 Zeichen hat.
+> 
+> ⚠️ Stelle sicher dass `app.py` mindestens einmal gestartet wurde, damit die Datenbank (`users.db`) initialisiert ist — sonst schlägt das Script fehl.
 
 ## **Access the application**
    Open your browser and navigate to `http://127.0.0.1:5000`
