@@ -47,7 +47,8 @@
                     <a href="{{ url_for('download', filename=file) }}" class="btn btn-sm-custom btn-outline-primary">
                         <i class="bi bi-download"></i>
                     </a>
-                    <button type="button" class="btn btn-sm-custom btn-outline-danger" onclick="confirmDelete('{{ file }}', {{ loop.index0 }})">
+                    <button type="button" class="btn btn-sm-custom btn-outline-danger delete-btn"
+                            data-form-id="delete-{{ loop.index0 }}" data-file-name="{{ file }}">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>
@@ -134,47 +135,6 @@
   </div>
 </div>
 
-<script>
-(async () => {
-  const listEl   = document.getElementById('passkey-list');
-  const statusEl = document.getElementById('passkey-status');
-
-  if (!passkeySupported()) {
-    document.getElementById('add-passkey-btn').disabled = true;
-    document.getElementById('add-passkey-btn').title    = 'Your browser does not support passkeys';
-    return;
-  }
-
-  document.getElementById('add-passkey-btn').addEventListener('click', async () => {
-    const name = prompt('Name this passkey (e.g. "MacBook Touch ID"):', 'My passkey');
-    if (!name) return;
-
-    statusEl.innerHTML = '<span class="text-muted small">Creating passkey…</span>';
-    try {
-      const result = await registerPasskey(name.trim() || 'My passkey');
-      statusEl.innerHTML =
-        `<span class="text-success small">✓ Passkey "<strong>${result.name}</strong>" registered. Refresh to see it in the list.</span>`;
-    } catch (err) {
-      statusEl.innerHTML =
-        `<span class="text-danger small">✗ ${err.message}</span>`;
-    }
-  });
-})();
-</script>
-
-<script>
-let deleteFormId = null;
-
-function confirmDelete(fileName, index) {
-    deleteFormId = `delete-${index}`;
-    document.getElementById('deleteFileName').textContent = fileName;
-    new bootstrap.Modal(document.getElementById('deleteModal')).show();
-}
-
-document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
-    if (deleteFormId) {
-        document.getElementById(deleteFormId).submit();
-    }
-});
-</script>
+<script src="{{ url_for('static', filename='js/webauthn.js') }}"></script>
+<script src="{{ url_for('static', filename='js/files.js') }}"></script>
 {% endblock %}
