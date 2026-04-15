@@ -3,6 +3,8 @@ from werkzeug.utils import secure_filename
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from cryptography.fernet import Fernet
 from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 import bcrypt  # Import bcrypt for password hashing
 import os
@@ -28,8 +30,15 @@ load_dotenv()  # liest die .env Datei ein
 
 app = Flask(__name__)
 
-#Added as Protection against CRSF 
+#Added as Protection against CRSF
 csrf = CSRFProtect(app)
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
 
 
 _SECRET_KEY = os.environ.get('SECRET_KEY')
@@ -321,6 +330,7 @@ def index():
 
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("10 per minute; 30 per hour")
 def login():
     if request.method == 'POST':
         username = request.form['username'].strip()
@@ -630,6 +640,12 @@ def webauthn_login_complete():
     update_last_login(user_id)
 
     return jsonify({'status': 'ok', 'redirect': url_for('files')})
+
+
+@app.errorhandler(429)
+def too_many_requests(e):
+    flash("Too many login attempts. Please try again later.", "danger")
+    return render_template('login.html'), 429
 
 
 @app.errorhandler(404)
