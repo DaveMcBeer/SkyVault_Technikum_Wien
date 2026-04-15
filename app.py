@@ -293,6 +293,24 @@ def _get_user_credentials(user_id: int) -> list:
     ]
 
 
+# Security headers on every response
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'none';"
+    )
+    return response
+
+
 # Routes
 @app.route('/')
 def index():
