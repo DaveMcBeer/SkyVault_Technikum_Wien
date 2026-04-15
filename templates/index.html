@@ -52,7 +52,7 @@
                                 <i class="bi bi-plus-circle display-4 text-muted mb-3"></i>
                                 <h5 class="mb-2">Drag & Drop your files here</h5>
                                 <p class="text-muted mb-3">or click to browse</p>
-                                <button type="button" class="btn btn-outline-primary" onclick="document.getElementById('file').click()">
+                                <button type="button" class="btn btn-outline-primary choose-file-btn">
                                     <i class="bi bi-folder2-open me-2"></i>Choose File
                                 </button>
                             </div>
@@ -62,7 +62,7 @@
                                         <i class="bi bi-file-earmark text-primary me-2"></i>
                                         <span id="fileName"></span>
                                     </div>
-                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearFile()">
+                                    <button type="button" class="btn btn-sm btn-outline-danger clear-file-btn">
                                         <i class="bi bi-x"></i>
                                     </button>
                                 </div>
@@ -96,51 +96,5 @@
     </div>
 </div>
 
-<script>
-const uploadArea = document.getElementById('uploadArea');
-const fileInput = document.getElementById('file');
-const fileInfo = document.getElementById('fileInfo');
-const fileName = document.getElementById('fileName');
-const uploadBtn = document.querySelector('.upload-btn');
-const uploadContent = document.querySelector('.upload-content');
-
-uploadArea.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadArea.classList.add('drag-over');
-});
-
-uploadArea.addEventListener('dragleave', () => {
-    uploadArea.classList.remove('drag-over');
-});
-
-uploadArea.addEventListener('drop', (e) => {
-    e.preventDefault();
-    uploadArea.classList.remove('drag-over');
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        fileInput.files = files;
-        showFileInfo(files[0]);
-    }
-});
-
-fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-        showFileInfo(e.target.files[0]);
-    }
-});
-
-function showFileInfo(file) {
-    fileName.textContent = file.name;
-    uploadContent.classList.add('d-none');
-    fileInfo.classList.remove('d-none');
-    uploadBtn.disabled = false;
-}
-
-function clearFile() {
-    fileInput.value = '';
-    uploadContent.classList.remove('d-none');
-    fileInfo.classList.add('d-none');
-    uploadBtn.disabled = true;
-}
-</script>
+<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
 {% endblock %}
