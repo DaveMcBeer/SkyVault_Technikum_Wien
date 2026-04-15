@@ -349,9 +349,12 @@ def upload_file():
 
     filename = secure_filename(file.filename)
 
-    # Encrypt the file before saving it (file_data statt file.read())
+    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
+    os.makedirs(user_folder, exist_ok=True)
+
+    # Encrypt the file before saving it
     encrypted_file = cipher_suite.encrypt(file_data)
-    with open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'wb') as f:
+    with open(os.path.join(user_folder, filename), 'wb') as f:
         f.write(encrypted_file)
 
     flash(f"File '{filename}' uploaded and encrypted successfully!", "success")
@@ -362,7 +365,9 @@ def upload_file():
 @login_required
 def files():
     try:
-        file_list = os.listdir(app.config['UPLOAD_FOLDER'])
+        user_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
+        os.makedirs(user_folder, exist_ok=True)
+        file_list = os.listdir(user_folder)
         return render_template('files.html', files=file_list, get_icon=get_icon, title="Uploaded Files")
     except Exception as e:
         flash(f"Error retrieving files: {str(e)}", "danger")
@@ -374,7 +379,8 @@ def files():
 def download(filename):
     try:
         safe_filename = secure_filename(filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+        user_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
+        file_path = os.path.join(user_folder, safe_filename)
 
         # Decrypt the file before sending
         with open(file_path, 'rb') as f:
@@ -382,8 +388,7 @@ def download(filename):
             decrypted_data = cipher_suite.decrypt(encrypted_data)
 
         # Send the decrypted file to the user
-        response = send_from_directory(
-            app.config['UPLOAD_FOLDER'], safe_filename, as_attachment=True)
+        response = send_from_directory(user_folder, safe_filename, as_attachment=True)
         response.data = decrypted_data
         return response
     except FileNotFoundError:
@@ -399,7 +404,8 @@ def download(filename):
 def delete_file(filename):
     try:
         safe_filename = secure_filename(filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+        user_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
+        file_path = os.path.join(user_folder, safe_filename)
 
         if os.path.exists(file_path):
             os.remove(file_path)
