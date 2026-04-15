@@ -11,9 +11,11 @@ import os
 import sqlite3
 import base64
 import json
+import logging
 import webauthn
 import sys
 import magic  # Import python-magic for MIME type checking
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
 from webauthn.helpers.structs import (
@@ -93,6 +95,13 @@ ALLOWED_MIME_TYPES = {
 }
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # Max file size of 16MB
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+
+# Security audit logger
+security_logger = logging.getLogger('skyvault.audit')
+security_logger.setLevel(logging.INFO)
+_log_handler = RotatingFileHandler('security.log', maxBytes=1_000_000, backupCount=5)
+_log_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+security_logger.addHandler(_log_handler)
 
 # WebAuthn / FIDO2 configuration
 RP_ID = os.environ.get("WEBAUTHN_RP_ID",   "localhost")
@@ -340,8 +349,10 @@ def login():
         if user and bcrypt.checkpw(password.encode(), user['password_hash'].encode()):
             login_user(User(user['id'], user['username']))
             update_last_login(user['id'])
+            security_logger.info("LOGIN_SUCCESS user=%s ip=%s", username, request.remote_addr)
             return redirect(url_for('index'))
 
+        security_logger.warning("LOGIN_FAILED user=%s ip=%s", username, request.remote_addr)
         flash("Invalid credentials", "danger")
 
     return render_template('login.html')
@@ -350,6 +361,7 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    security_logger.info("LOGOUT user=%s ip=%s", current_user.username, request.remote_addr)
     logout_user()
     return redirect(url_for('login'))
 
@@ -372,6 +384,8 @@ def upload_file():
     file_data = file.read()
 
     if not allowed_file(file.filename, file_data):
+        security_logger.warning("UPLOAD_REJECTED user=%s ip=%s filename=%s reason=invalid_type",
+                                current_user.username, request.remote_addr, file.filename)
         flash("Invalid file type! Only txt, pdf, png, jpg, jpeg, and gif are allowed.", "danger")
         return redirect(url_for('index'))
 
@@ -385,6 +399,8 @@ def upload_file():
     with open(os.path.join(user_folder, filename), 'wb') as f:
         f.write(encrypted_file)
 
+    security_logger.info("UPLOAD_SUCCESS user=%s ip=%s filename=%s size=%d",
+                         current_user.username, request.remote_addr, filename, len(file_data))
     flash(f"File '{filename}' uploaded and encrypted successfully!", "success")
     return redirect(url_for('files'))
 
@@ -415,11 +431,16 @@ def download(filename):
             encrypted_data = f.read()
             decrypted_data = cipher_suite.decrypt(encrypted_data)
 
+        security_logger.info("DOWNLOAD user=%s ip=%s filename=%s",
+                             current_user.username, request.remote_addr, safe_filename)
+
         # Send the decrypted file to the user
         response = send_from_directory(user_folder, safe_filename, as_attachment=True)
         response.data = decrypted_data
         return response
     except FileNotFoundError:
+        security_logger.warning("DOWNLOAD_FAILED user=%s ip=%s filename=%s reason=not_found",
+                                current_user.username, request.remote_addr, filename)
         flash("File not found!", "warning")
         return redirect(url_for('files'))
     except Exception as e:
@@ -437,8 +458,12 @@ def delete_file(filename):
 
         if os.path.exists(file_path):
             os.remove(file_path)
+            security_logger.info("DELETE user=%s ip=%s filename=%s",
+                                 current_user.username, request.remote_addr, safe_filename)
             flash(f"File '{safe_filename}' deleted successfully!", "success")
         else:
+            security_logger.warning("DELETE_FAILED user=%s ip=%s filename=%s reason=not_found",
+                                    current_user.username, request.remote_addr, safe_filename)
             flash(f"File '{safe_filename}' not found!", "warning")
 
         return redirect(url_for('files'))
