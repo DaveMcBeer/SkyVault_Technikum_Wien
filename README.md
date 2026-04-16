@@ -170,6 +170,62 @@ If you have any questions or need help, please:
 
 ---
 
+# SkyVault Security Fix Report
+
+## F1 — Per-User File Isolation (High)
+
+**Problem:** Alle User sahen und konnten alle Dateien aller anderen User herunterladen/löschen.
+
+**Fix:** Upload, Download, Delete und File-Listing verwenden jetzt User-spezifische Unterordner (`uploads/<user_id>/`). Jeder User kann ausschließlich auf seine eigenen Dateien zugreifen.
+
+---
+
+## F2 — Security Headers (Medium)
+
+**Problem:** Keine Security-HTTP-Header gesetzt.
+
+**Fix:** `after_request`-Hook setzt auf jede Response:
+- `X-Content-Type-Options: nosniff` — verhindert MIME-Sniffing
+- `X-Frame-Options: DENY` — verhindert Clickjacking
+- `Referrer-Policy: strict-origin-when-cross-origin` — verhindert URL-Leaks
+- `Content-Security-Policy` — erlaubt nur bekannte Script/Style-Quellen (`self`, jsdelivr, unpkg)
+
+Inline-Scripts im Upload-Template wurden in `static/js/upload.js` ausgelagert um CSP-Konformität herzustellen.
+
+---
+
+## F3 — Rate Limiting (Medium)
+
+**Problem:** Login-Endpoint hatte kein Throttling — Brute-Force ungehindert möglich.
+
+**Fix:** `flask-limiter` auf `/login` mit **10 Versuchen/Minute** und **30/Stunde** pro IP. Bei Überschreitung: HTTP 429 mit Fehlermeldung.
+
+---
+
+## F4 — Security Audit Logging (Medium)
+
+**Problem:** Keine Audit-Logs — Angriffe nicht nachvollziehbar.
+
+**Fix:** `RotatingFileHandler` schreibt nach `security.log` (max. 1MB, 5 Backups). Geloggt werden:
+
+| Event | Level |
+|---|---|
+| Login success/failed | INFO / WARNING |
+| Logout | INFO |
+| Upload success/rejected | INFO / WARNING |
+| Download success/failed | INFO / WARNING |
+| Delete success/failed | INFO / WARNING |
+
+---
+
+## F5 — Password Policy (Low)
+
+**Problem:** Keine Passwortanforderungen bei der Registrierung.
+
+**Fix:** Signup-Route prüft:
+- Mindestlänge 8 Zeichen
+- Mindestens 1 Großbuchstabe
+- Mindestens 1 Zahl
 <div align="center">
   Made with ❤️ by Priyanshu K Sharma
   
