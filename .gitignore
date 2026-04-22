@@ -42,6 +42,8 @@ encrypted_files/
 users.db
 *.sqlite3
 instance/
+users.txt
+.users_migrated
 
 # Environment variables
 .env

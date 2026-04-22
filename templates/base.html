@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,10 +10,11 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <!-- SimpleWebAuthn browser v13 — FIDO2 helper (no npm/build step needed) -->
     <script src="https://unpkg.com/@simplewebauthn/browser@13/dist/bundle/index.umd.min.js"
-            crossorigin="anonymous"></script>
+        crossorigin="anonymous"></script>
     <!-- SkyVault WebAuthn helpers -->
     <script src="{{ url_for('static', filename='js/webauthn.js') }}"></script>
 </head>
+
 <body>
 
     <div class="container">
@@ -24,45 +26,49 @@
                     <img src="{{ url_for('static', filename='icons/image-icon.png') }}" alt="SkyVault Logo">
                     <span>SkyVault</span>
                 </a>
-                
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
-                
+
                 <div class="collapse navbar-collapse" id="navbarNav">
                     <ul class="navbar-nav ms-auto align-items-lg-center">
                         {% if current_user.is_authenticated %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="/">
-                                    <i class="bi bi-house-door"></i>
-                                    <span>Home</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('files') }}">
-                                    <i class="bi bi-folder2-open"></i>
-                                    <span>My Files</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('logout') }}">
+                        <li class="nav-item">
+                            <a class="nav-link" href="/">
+                                <i class="bi bi-house-door"></i>
+                                <span>Home</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('files') }}">
+                                <i class="bi bi-folder2-open"></i>
+                                <span>My Files</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <form method="POST" action="{{ url_for('logout') }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                                <button type="submit" class="nav-link btn btn-link p-0">
                                     <i class="bi bi-box-arrow-right"></i>
                                     <span>Logout</span>
-                                </a>
-                            </li>
+                                </button>
+                            </form>
+                        </li>
                         {% else %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('login') }}">
-                                    <i class="bi bi-box-arrow-in-right"></i>
-                                    <span>Login</span>
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('signup') }}">
-                                    <i class="bi bi-person-plus"></i>
-                                    <span>Sign Up</span>
-                                </a>
-                            </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('login') }}">
+                                <i class="bi bi-box-arrow-in-right"></i>
+                                <span>Login</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('signup') }}">
+                                <i class="bi bi-person-plus"></i>
+                                <span>Sign Up</span>
+                            </a>
+                        </li>
                         {% endif %}
                     </ul>
                 </div>
@@ -79,4 +85,5 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

@@ -9,6 +9,7 @@ from flask_limiter.util import get_remote_address
 import bcrypt  # Import bcrypt for password hashing
 import os
 import sqlite3
+import time
 import base64
 import json
 import logging
@@ -39,12 +40,13 @@ limiter = Limiter(
     get_remote_address,
     app=app,
     default_limits=[],
-    storage_uri="memory://",
+    storage_uri="sqlite:///limiter.db",
 )
 
 
 _SECRET_KEY = os.environ.get('SECRET_KEY')
 _ENCRYPTION_KEY = os.environ.get('ENCRYPTION_KEY')
+ENABLE_HTTPS = os.environ.get('ENABLE_HTTPS', 'False').strip().lower() in ('true', '1')
 
 if not _SECRET_KEY:
     print("ERROR: SECRET_KEY is not set. Aborting.", file=sys.stderr)
@@ -130,10 +132,21 @@ def init_db():
             password_hash TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP,
-            is_active BOOLEAN DEFAULT 1
+            is_active BOOLEAN DEFAULT 1,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until REAL DEFAULT NULL
         )
         '''
     )
+    # Migrate existing databases to add lockout columns if absent
+    for col, defn in [
+        ("failed_attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("locked_until", "REAL DEFAULT NULL"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {defn}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
     cursor.execute(
         '''
         CREATE TABLE IF NOT EXISTS webauthn_credentials (
@@ -156,6 +169,10 @@ def init_db():
 
 def migrate_users_from_txt():
     """Import legacy users from users.txt into SQLite once."""
+    sentinel_file = '.users_migrated'
+    if os.path.exists(sentinel_file):
+        return
+
     legacy_file = 'users.txt'
     if not os.path.exists(legacy_file):
         return
@@ -188,6 +205,16 @@ def migrate_users_from_txt():
     conn.close()
     print(f"User migration complete: imported {imported} users from users.txt")
 
+    # Write sentinel to prevent re-running on subsequent restarts
+    with open(sentinel_file, 'w') as f:
+        f.write(f"migrated at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+
+    # Remove credential artefact from disk
+    try:
+        os.remove(legacy_file)
+    except OSError:
+        pass
+
 
 def get_user_by_id(user_id):
     """Fetch an active user by database id."""
@@ -207,7 +234,8 @@ def get_user_by_username(username):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT id, username, password_hash, is_active FROM users WHERE username = ? AND is_active = 1',
+        'SELECT id, username, password_hash, is_active, failed_attempts, locked_until'
+        ' FROM users WHERE username = ? AND is_active = 1',
         (username,),
     )
     user = cursor.fetchone()
@@ -238,6 +266,43 @@ def update_last_login(user_id):
     cursor = conn.cursor()
     cursor.execute(
         'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?',
+        (user_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def is_account_locked(user):
+    """Return True if the account is within its lockout window."""
+    locked_until = user['locked_until']
+    return locked_until is not None and locked_until > time.time()
+
+
+def increment_failed_attempts(user_id):
+    """Record a failed login; lock the account after 5 consecutive failures."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ?',
+        (user_id,),
+    )
+    cursor.execute('SELECT failed_attempts FROM users WHERE id = ?', (user_id,))
+    row = cursor.fetchone()
+    if row and row['failed_attempts'] >= 5:
+        cursor.execute(
+            'UPDATE users SET locked_until = ? WHERE id = ?',
+            (time.time() + 900, user_id),  # 15-minute lockout window
+        )
+    conn.commit()
+    conn.close()
+
+
+def reset_failed_attempts(user_id):
+    """Clear failure counter and lockout state after a successful login."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?',
         (user_id,),
     )
     conn.commit()
@@ -326,7 +391,17 @@ def set_security_headers(response):
         "object-src 'none'; "
         "frame-ancestors 'none';"
     )
+    if ENABLE_HTTPS:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
+
+
+@app.before_request
+def enforce_https():
+    """Redirect HTTP requests to HTTPS when behind a TLS-terminating proxy."""
+    if ENABLE_HTTPS and not app.debug:
+        if request.headers.get('X-Forwarded-Proto') == 'http':
+            return redirect(request.url.replace('http://', 'https://', 1), 301)
 
 
 # Routes
@@ -346,23 +421,32 @@ def login():
         password = request.form['password']
 
         user = get_user_by_username(username)
+        if user and is_account_locked(user):
+            security_logger.warning("LOGIN_BLOCKED_LOCKED user=%s ip=%s", username, request.remote_addr)
+            flash("Invalid credentials", "danger")
+            return render_template('login.html')
+
         if user and bcrypt.checkpw(password.encode(), user['password_hash'].encode()):
+            reset_failed_attempts(user['id'])
             login_user(User(user['id'], user['username']))
             update_last_login(user['id'])
             security_logger.info("LOGIN_SUCCESS user=%s ip=%s", username, request.remote_addr)
             return redirect(url_for('index'))
 
+        if user:
+            increment_failed_attempts(user['id'])
         security_logger.warning("LOGIN_FAILED user=%s ip=%s", username, request.remote_addr)
         flash("Invalid credentials", "danger")
 
     return render_template('login.html')
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 @login_required
 def logout():
     security_logger.info("LOGOUT user=%s ip=%s", current_user.username, request.remote_addr)
     logout_user()
+    session.clear()
     return redirect(url_for('login'))
 
 
@@ -713,7 +797,7 @@ def signup():
             password.encode(), bcrypt.gensalt()).decode()
 
         if not create_user(username, hashed_password):
-            flash("Username already exists!", "danger")
+            flash("Registration failed. Please check your details and try again.", "danger")
             return redirect(url_for('signup'))
 
         flash("Account created successfully! Please log in.", "success")
